@@ -272,4 +272,4 @@ if st.sidebar.checkbox("Show upload form"):
         st.sidebar.success(f"Saved {len(uploaded)} file(s) to {target_dir}")
 
 st.markdown("---")
-st.caption("Developed by D • MMCCCL Lab Onboarding Utility")
+st.caption("Developed by Dollada Srisai")

@@ -1,11 +1,4 @@
-streamlit
-pandas
-numpy
-base64
-path
-datetime
-os
-io
-openpyxl
-python-docx
-python-magic
+streamlit>=1.35.0
+pandas>=2.1.0
+openpyxl>=3.1.0
+python-docx>=0.8.11
