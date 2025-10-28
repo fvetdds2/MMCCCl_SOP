@@ -1,0 +1,11 @@
+streamlit
+pandas
+numpy
+base64
+path
+datetime
+os
+io
+openpyxl
+python-docx
+python-magic
