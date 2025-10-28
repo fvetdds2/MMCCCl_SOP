@@ -30,10 +30,10 @@ st.markdown("""
         margin: 0;
         line-height: 1.2;
         flex: 1;
-        text-align: right; /* title now aligns right */
+        text-align: right; /* title aligns right */
     }
     .logo-left {
-        width: 400px;  /* adjust logo size */
+        width: 400px;  /* logo width */
         max-height: 200px;
         object-fit: contain;
     }
@@ -60,7 +60,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # Optional: for reading docx content (install python-docx)
 try:
     import docx
@@ -78,7 +77,7 @@ SIGNATURES_DIR = Path("signatures")
 SIGNATURES_DIR.mkdir(exist_ok=True)
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
 
-# ensure signature CSV exists with headers
+# ensure signature CSV exists
 if not SIGNATURE_CSV.exists():
     pd.DataFrame(columns=[
         "timestamp_utc", "timestamp_local", "name", "email", "role",
@@ -89,22 +88,26 @@ if not SIGNATURE_CSV.exists():
 # HELPER FUNCTIONS
 # -------------------------------------------------
 def list_files(folder: Path):
-    """List all supported files, including in subfolders."""
+    """List all supported files including subfolders."""
     if not folder.exists():
         return []
     exts = [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".csv", ".xls"]
-    files = [p for p in sorted(folder.rglob("*")) if p.suffix.lower() in exts]
-    return files
+    return [p for p in sorted(folder.rglob("*")) if p.suffix.lower() in exts]
+
 
 def embed_pdf(file_path: Path, height: int = 800):
-    """Embed PDF directly inside Streamlit (Chrome-safe)."""
+    """Chrome-safe PDF embedding: provides link and inline preview."""
     try:
+        # Safe open link
+        st.markdown(f"📄 [Open {file_path.name} in new tab](file://{file_path.resolve()})", unsafe_allow_html=True)
+        
+        # Inline preview (may be blocked by Chrome for some PDFs)
         with open(file_path, "rb") as f:
             data = f.read()
         b64 = base64.b64encode(data).decode()
         pdf_display = f"""
         <iframe
-            src="data:application/pdf;base64,{b64}"
+            src="data:application/pdf;base64,{b64}#toolbar=1&navpanes=0&scrollbar=1"
             width="100%"
             height="{height}px"
             style="border:1px solid #ddd; border-radius:10px;"
@@ -114,25 +117,30 @@ def embed_pdf(file_path: Path, height: int = 800):
     except Exception as e:
         st.error(f"Could not open {file_path.name}: {e}")
 
+
 def file_download_link(file_path: Path, label: str = None):
     label = label or file_path.name
     with open(file_path, "rb") as f:
         data = f.read()
     b64 = base64.b64encode(data).decode()
-    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{file_path.name}">{label}</a>'
-    return href
+    return f'<a href="data:application/octet-stream;base64,{b64}" download="{file_path.name}">{label}</a>'
+
 
 def preview_docx(file_path: Path, max_paragraphs=40):
     if docx is None:
         st.write("Preview unavailable (python-docx not installed). Use download button.")
         return
-    doc = docx.Document(str(file_path))
-    text = []
-    for i, para in enumerate(doc.paragraphs):
-        text.append(para.text)
-        if i + 1 >= max_paragraphs:
-            break
-    st.markdown("\n\n".join(text) if text else "*No preview text available.*")
+    try:
+        doc = docx.Document(str(file_path))
+        text = []
+        for i, para in enumerate(doc.paragraphs):
+            text.append(para.text)
+            if i + 1 >= max_paragraphs:
+                break
+        st.markdown("\n\n".join(text) if text else "*No preview text available.*")
+    except Exception as e:
+        st.error(f"Error reading Word document: {e}")
+
 
 def preview_excel(file_path: Path, nrows=50):
     try:
@@ -141,10 +149,15 @@ def preview_excel(file_path: Path, nrows=50):
     except Exception as e:
         st.error(f"Couldn't preview Excel file: {e}")
 
+
 def preview_text(file_path: Path, nlines=200):
-    with open(file_path, "r", errors="ignore") as f:
-        text = f.read()
-    st.code(text[:20000])  # limit size
+    try:
+        with open(file_path, "r", errors="ignore") as f:
+            text = f.read()
+        st.code(text[:20000])  # limit size
+    except Exception as e:
+        st.error(f"Error reading text file: {e}")
+
 
 def record_signature(name, email, role, category, reviewed_files):
     ts_utc = datetime.utcnow().isoformat() + "Z"
@@ -163,17 +176,16 @@ def record_signature(name, email, role, category, reviewed_files):
     df.to_csv(SIGNATURE_CSV, index=False)
     return row
 
+
 def get_signatures_df():
     return pd.read_csv(SIGNATURE_CSV)
 
 # -------------------------------------------------
 # MAIN UI
 # -------------------------------------------------
-st.markdown(
-    """
-    Please review all documents in each tab, mark them as **Reviewed**, and sign when done.  
-    """
-)
+st.markdown("""
+Please review all documents in each tab, mark them as **Reviewed**, and sign when done.
+""")
 
 tabs = st.tabs(list(CATEGORIES.keys()))
 
