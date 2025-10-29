@@ -32,46 +32,52 @@ if not st.session_state.authenticated:
 
 
 # -------------------------------------------------
-
 # PAGE SETUP
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Elegant Header Layout with Meharry Theme (Refined Title Size) ---
+# --- Elegant Header Layout with Refined Design ---
 st.markdown("""
     <style>
     .header-container {
         display: flex;
         align-items: center;
         gap: 1.2rem;
-        padding: 0.9rem 1.4rem;
-        background-color: #f8f5f6; /* Soft maroon-tinted background */
+        padding: 1rem 1.5rem;
+        background: linear-gradient(90deg, #7a1e3a 0%, #a3475b 40%, #f7f5f6 100%);
         border-radius: 10px;
-        border: 1px solid #e3d9dc;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
         margin-bottom: 1.2rem;
     }
 
     .logo-left {
-        width: 210px;
-        max-height: 90px;
+        width: 180px;
+        max-height: 80px;
         object-fit: contain;
+        background-color: white;
+        padding: 0.3rem;
+        border-radius: 8px;
     }
 
     .main-header {
-        color: #4b1e29; /* Deep maroon */
-        font-size: 1.1rem; /* ↓ Reduced for elegant proportion */
+        color: #ffffff;
+        font-size: 0.95rem; /* smaller, refined */
         font-weight: 600;
-        line-height: 1.3;
+        line-height: 1.2;
         margin: 0;
-        letter-spacing: 0.4px;
+        letter-spacing: 0.3px;
     }
 
-    
+   
+
+    @media (max-width: 768px) {
+        .main-header { font-size: 0.9rem; }
+       
+    }
     </style>
 """, unsafe_allow_html=True)
 
 # --- Header / Logo ---
-logo_path = "mmcccl_logo.png"  # adjust if needed
+logo_path = "mmcccl_logo.png"  # update with your file
 logo_html = ""
 if Path(logo_path).exists():
     logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
@@ -83,6 +89,7 @@ st.markdown(f"""
     <div>{logo_html}</div>
     <div>
         <h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1>
+        
     </div>
 </div>
 """, unsafe_allow_html=True)
