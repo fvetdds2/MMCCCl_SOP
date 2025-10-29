@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-import shutil
 import base64
 
 # -------------------------------------------------
@@ -38,7 +37,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Logo ---
+# --- Logo Display ---
 logo_path = "mmcccl_logo.png"
 if Path(logo_path).exists():
     with open(logo_path, "rb") as f:
@@ -47,65 +46,72 @@ if Path(logo_path).exists():
 else:
     logo_html = ""
 
-st.markdown(
-    f"""
+st.markdown(f"""
     <div class="header-container">
         <div>{logo_html}</div>
         <div><h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1></div>
     </div>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # -------------------------------------------------
-# FOLDER CONFIGURATION
+# PATH CONFIGURATION
 ROOT = Path("docs")
 CATEGORIES = {
     "Standard SOPs": ROOT / "sop",
     "Technical Documents": ROOT / "technical",
     "Safety Policies": ROOT / "safety",
 }
-
-# Technical subfolders
-TECH_SUBFOLDERS = [
-    "Alinity c SOP",
-    "Alinity i SOP",
-    "Manual Testing SOP",
-    "Operation Manual"
-]
-
-# Ensure folders exist
-ROOT.mkdir(parents=True, exist_ok=True)
-for folder in CATEGORIES.values():
-    folder.mkdir(parents=True, exist_ok=True)
-for sub in TECH_SUBFOLDERS:
-    (CATEGORIES["Technical Documents"] / sub).mkdir(parents=True, exist_ok=True)
-
-# Signature and review tracking
 SIGNATURES_DIR = Path("signatures")
 SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
-
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
 REVIEW_STATUS_CSV = SIGNATURES_DIR / "review_status.csv"
 
-# Initialize CSVs if missing
+# Ensure base folders exist
+ROOT.mkdir(parents=True, exist_ok=True)
+for folder in CATEGORIES.values():
+    folder.mkdir(parents=True, exist_ok=True)
+
+# Initialize tracking files
 if not SIGNATURE_CSV.exists():
-    pd.DataFrame(columns=["timestamp_utc", "timestamp_local", "name", "email", "role", "category", "reviewed_files"]).to_csv(SIGNATURE_CSV, index=False)
+    pd.DataFrame(columns=[
+        "timestamp_utc", "timestamp_local", "name", "email", "role",
+        "category", "reviewed_files"
+    ]).to_csv(SIGNATURE_CSV, index=False)
 
 if not REVIEW_STATUS_CSV.exists():
     pd.DataFrame(columns=["email", "category", "file_key", "reviewed"]).to_csv(REVIEW_STATUS_CSV, index=False)
 
 # -------------------------------------------------
-# HELPERS
+# HELPER FUNCTIONS
 def list_files(folder: Path):
-    exts = [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".csv", ".xls"]
-    return [p for p in sorted(folder.rglob("*")) if p.is_file() and p.suffix.lower() in exts]
+    """List all PDF files recursively."""
+    return [p for p in sorted(folder.rglob("*.pdf")) if p.is_file()]
 
-def get_signatures_df():
+def load_review_status(email: str):
+    if not email:
+        return {}
     try:
-        return pd.read_csv(SIGNATURE_CSV)
+        df = pd.read_csv(REVIEW_STATUS_CSV)
+        df = df[df["email"] == email]
+        return {f"{row.category}:{row.file_key}": bool(row.reviewed) for _, row in df.iterrows()}
     except Exception:
-        return pd.DataFrame(columns=["timestamp_utc", "timestamp_local", "name", "email", "role", "category", "reviewed_files"])
+        return {}
+
+def update_review_status(email: str, category: str, file_key: str, reviewed: bool):
+    if not email:
+        return
+    df = pd.read_csv(REVIEW_STATUS_CSV)
+    mask = (df["email"] == email) & (df["category"] == category) & (df["file_key"] == file_key)
+    if mask.any():
+        df.loc[mask, "reviewed"] = reviewed
+    else:
+        df = pd.concat([df, pd.DataFrame([{
+            "email": email,
+            "category": category,
+            "file_key": file_key,
+            "reviewed": reviewed
+        }])], ignore_index=True)
+    df.to_csv(REVIEW_STATUS_CSV, index=False)
 
 def record_signature(name, email, role, category, reviewed_files):
     ts_utc = datetime.utcnow().isoformat() + "Z"
@@ -124,153 +130,129 @@ def record_signature(name, email, role, category, reviewed_files):
     df.to_csv(SIGNATURE_CSV, index=False)
     return row
 
-# --- Persistent review tracking ---
-def load_review_status(email: str):
-    """Return a dict of previously reviewed files for a given user."""
-    if not email:
-        return {}
+def get_signatures_df():
     try:
-        df = pd.read_csv(REVIEW_STATUS_CSV)
-        df = df[df["email"] == email]
-        return {f"{row.category}:{row.file_key}": bool(row.reviewed) for _, row in df.iterrows()}
+        return pd.read_csv(SIGNATURE_CSV)
     except Exception:
-        return {}
-
-def update_review_status(email: str, category: str, file_key: str, reviewed: bool):
-    """Save review checkbox state persistently."""
-    if not email:
-        return
-    df = pd.read_csv(REVIEW_STATUS_CSV)
-    mask = (df["email"] == email) & (df["category"] == category) & (df["file_key"] == file_key)
-    if mask.any():
-        df.loc[mask, "reviewed"] = reviewed
-    else:
-        df = pd.concat(
-            [df, pd.DataFrame([{"email": email, "category": category, "file_key": file_key, "reviewed": reviewed}])],
-            ignore_index=True
-        )
-    df.to_csv(REVIEW_STATUS_CSV, index=False)
+        return pd.DataFrame(columns=[
+            "timestamp_utc", "timestamp_local", "name",
+            "email", "role", "category", "reviewed_files"
+        ])
 
 # -------------------------------------------------
-# MAIN CONTENT
-st.markdown("""Please review all documents in each tab, mark them as **Reviewed**, and sign when done.""")
+# MAIN PAGE UI
+st.markdown("Please review all documents in each tab, mark them as **Reviewed**, and sign when done.")
 
+email_global = st.text_input("Enter your email to load/save progress", key="user_email")
+if email_global:
+    st.session_state["current_email"] = email_global
+
+review_memory = load_review_status(email_global)
 tabs = st.tabs(list(CATEGORIES.keys()))
 
+# -------------------------------------------------
+# CATEGORY LOOP
 for i, (category_name, folder) in enumerate(CATEGORIES.items()):
     with tabs[i]:
         st.header(category_name)
 
-        # --- EMAIL for session memory ---
-        email_session = st.session_state.get("current_email", "")
-        st.text_input("Enter your email to track progress:", key=f"email_entry_{category_name}", value=email_session)
-        if st.session_state.get(f"email_entry_{category_name}"):
-            st.session_state["current_email"] = st.session_state[f"email_entry_{category_name}"]
-        email_session = st.session_state.get("current_email", "")
+        total_files = 0
+        reviewed_files = 0
 
-        reviewed_memory = load_review_status(email_session)
-        reviewed = {}
-
-        # --- Technical Documents (with subfolders) ---
         if category_name == "Technical Documents":
-            for sub in TECH_SUBFOLDERS:
-                subfolder = folder / sub
-                st.subheader(sub)
-                pdfs = list_files(subfolder)
+            subfolders = [f for f in folder.iterdir() if f.is_dir()]
+            for sub in subfolders:
+                st.subheader(sub.name)
+                pdfs = list_files(sub)
                 if not pdfs:
-                    st.info(f"No files found in {sub}.")
+                    st.info(f"No PDF files in {sub.name}.")
                     continue
+
+                sub_total = len(pdfs)
+                sub_reviewed = 0
+
                 for f in pdfs:
-                    file_key = f"{sub}/{f.name}"
-                    prev = reviewed_memory.get(f"{category_name}:{file_key}", False)
+                    total_files += 1
+                    file_key = f"{sub.name}/{f.name}"
+                    prev = review_memory.get(f"{category_name}:{file_key}", False)
                     cols = st.columns([4, 1])
                     with cols[0]:
-                        st.markdown(f"- {f.name}")
+                        st.markdown(f"📄 **{f.name}**")
                     with cols[1]:
-                        checked = st.checkbox("Reviewed", key=f"rev_{category_name}_{file_key}", value=prev)
-                        if checked != prev and email_session:
-                            update_review_status(email_session, category_name, file_key, checked)
-                        reviewed[file_key] = checked
-                    with open(f, "rb") as fb:
-                        st.download_button("📥 Download", data=fb.read(), file_name=f.name, mime="application/pdf", key=f"dl_{category_name}_{file_key}")
+                        checked = st.checkbox("Reviewed", value=prev, key=f"chk_{category_name}_{file_key}")
+                    if checked != prev and email_global:
+                        update_review_status(email_global, category_name, file_key, checked)
+                    if checked:
+                        reviewed_files += 1
+                        sub_reviewed += 1
+
+                # Progress bar for each subfolder
+                st.progress(sub_reviewed / sub_total if sub_total else 0)
+                st.caption(f"{sub_reviewed}/{sub_total} documents reviewed")
 
         else:
-            # --- Regular Categories ---
             pdfs = list_files(folder)
+            total_files = len(pdfs)
             if not pdfs:
-                st.info("No files found in this folder.")
+                st.info("No PDF files found.")
                 continue
+
             for f in pdfs:
                 file_key = f.name
-                prev = reviewed_memory.get(f"{category_name}:{file_key}", False)
+                prev = review_memory.get(f"{category_name}:{file_key}", False)
                 cols = st.columns([4, 1])
                 with cols[0]:
-                    st.markdown(f"- {f.name}")
+                    st.markdown(f"📄 **{f.name}**")
                 with cols[1]:
-                    checked = st.checkbox("Reviewed", key=f"rev_{category_name}_{file_key}", value=prev)
-                    if checked != prev and email_session:
-                        update_review_status(email_session, category_name, file_key, checked)
-                    reviewed[file_key] = checked
-                with open(f, "rb") as fb:
-                    st.download_button("📥 Download", data=fb.read(), file_name=f.name, mime="application/pdf", key=f"dl_{category_name}_{file_key}")
+                    checked = st.checkbox("Reviewed", value=prev, key=f"chk_{category_name}_{file_key}")
+                if checked != prev and email_global:
+                    update_review_status(email_global, category_name, file_key, checked)
+                if checked:
+                    reviewed_files += 1
 
-        # --- Signature Section ---
+        # Overall progress for category
+        if total_files > 0:
+            progress = reviewed_files / total_files
+        else:
+            progress = 0
+
         st.markdown("---")
-        all_reviewed = all(reviewed.values()) if reviewed else False
-        if not all_reviewed:
-            st.warning("You must mark every file as Reviewed before signing.")
+        st.write(f"**Overall Progress for {category_name}:**")
+        st.progress(progress)
+        st.caption(f"✅ {reviewed_files}/{total_files} documents reviewed")
 
-        with st.form(key=f"form_sign_{category_name}"):
-            st.write("**Acknowledgement / Signature**")
-            name = st.text_input("Full name", key=f"name_{category_name}")
-            email = st.text_input("Email", value=email_session, key=f"email_{category_name}")
-            role = st.text_input("Role / Position", key=f"role_{category_name}")
-            submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
-
-            if submit_btn:
-                if not all_reviewed:
-                    st.error("Cannot sign: not all documents are marked as reviewed.")
-                elif not name or not email:
-                    st.error("Please provide your name and email before signing.")
-                else:
-                    reviewed_files = [fn for fn, val in reviewed.items() if val]
-                    row = record_signature(name, email, role, category_name, reviewed_files)
-                    st.success("Acknowledgement recorded ✅")
-                    st.json(row)
+        # Signature section
+        if progress < 1.0:
+            st.warning("⚠️ You must review all documents before signing.")
+        else:
+            with st.form(key=f"form_signature_{category_name}"):
+                st.write("**Acknowledgement / Signature**")
+                name = st.text_input("Full Name", key=f"name_{category_name}")
+                role = st.text_input("Role / Position", key=f"role_{category_name}")
+                submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
+                if submit_btn:
+                    reviewed_list = [
+                        k.split(":", 1)[1]
+                        for k, v in review_memory.items()
+                        if v and k.startswith(category_name)
+                    ]
+                    record_signature(name, email_global, role, category_name, reviewed_list)
+                    st.success("✅ Acknowledgement recorded successfully!")
 
 # -------------------------------------------------
-# SIDEBAR: ADMIN AREA
-st.sidebar.header("Admin / Personal Log")
-
+# SIDEBAR
+st.sidebar.header("Admin / Logs")
 sign_df = get_signatures_df()
-st.sidebar.download_button(
-    label="📥 Download Signature Log (CSV)",
-    data=sign_df.to_csv(index=False).encode("utf-8"),
-    file_name="review_signatures.csv",
-    mime="text/csv",
-)
 
-if sign_df.empty:
-    st.sidebar.write("*No signatures recorded yet.*")
-else:
-    st.sidebar.table(sign_df.sort_values("timestamp_local", ascending=False).head(10))
+if email_global:
+    user_records = sign_df[sign_df["email"] == email_global]
+    if not user_records.empty:
+        st.sidebar.download_button(
+            label="📥 Download Your Signed Records (CSV)",
+            data=user_records.to_csv(index=False).encode("utf-8"),
+            file_name=f"{email_global}_signed_records.csv",
+            mime="text/csv",
+        )
 
 st.sidebar.markdown("---")
-st.sidebar.header("Admin: Upload Documents")
-
-if st.sidebar.checkbox("Show upload form"):
-    upload_cat = st.sidebar.selectbox("Category", list(CATEGORIES.keys()))
-    uploaded = st.sidebar.file_uploader("Choose file(s) to upload", accept_multiple_files=True)
-    if st.sidebar.button("Upload"):
-        target_dir = CATEGORIES[upload_cat]
-        if upload_cat == "Technical Documents":
-            subchoice = st.sidebar.selectbox("Select subfolder", TECH_SUBFOLDERS)
-            target_dir = target_dir / subchoice
-        for uf in uploaded:
-            save_path = target_dir / uf.name
-            with open(save_path, "wb") as f:
-                f.write(uf.getbuffer())
-        st.sidebar.success(f"Saved {len(uploaded)} file(s) to {target_dir}")
-
-st.markdown("---")
 st.caption("Developed by Dollada Srisai")
