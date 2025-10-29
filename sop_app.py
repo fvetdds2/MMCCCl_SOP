@@ -35,42 +35,60 @@ if not st.session_state.authenticated:
 # PAGE SETUP
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Custom Header Layout ---
+# --- Elegant Header Layout ---
 st.markdown("""
     <style>
     .header-container {
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-start;
         align-items: center;
-        padding: 0.5rem 0;
-        border-bottom: 2px solid #eee;
-        margin-bottom: 1rem;
+        gap: 1.5rem;
+        padding: 0.8rem 1.2rem;
+        border-bottom: 1px solid #dcdcdc;
+        background-color: #fafafa;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        margin-bottom: 1.2rem;
     }
-    .main-header {
-        color: #0072b2;
-        font-size: 2.2rem;
-        font-weight: 400;
-        text-align: right;
-    }
+
     .logo-left {
-        width: 300px;
-        max-height: 150px;
+        width: 240px;
+        max-height: 100px;
         object-fit: contain;
+    }
+
+    .main-header {
+        color: #2b3a55; /* Elegant deep navy */
+        font-size: 1.6rem;
+        font-weight: 500;
+        line-height: 1.4;
+        margin: 0;
+    }
+
+    .sub-header {
+        color: #6c757d;
+        font-size: 0.9rem;
+        font-weight: 400;
+        margin-top: 0.3rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # --- Header / Logo ---
-logo_path = "mmcccl_logo.png"
+logo_path = "mmcccl_logo.png"  # your logo file
 logo_html = ""
 if Path(logo_path).exists():
     logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
     logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo-left" />'
 
+# --- Render Header ---
 st.markdown(f"""
 <div class="header-container">
-  <div>{logo_html}</div>
-  <div><h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1></div>
+    <div>{logo_html}</div>
+    <div>
+        <h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1>
+        <p class="sub-header">Consolidated Clinical Laboratories – Meharry Medical College</p>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
