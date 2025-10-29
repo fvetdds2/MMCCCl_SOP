@@ -1,106 +1,145 @@
 import streamlit as st
 import pandas as pd
+import base64
 from pathlib import Path
 from datetime import datetime
+import os
+import mimetypes
 import tempfile
 import shutil
-import base64
 import streamlit.components.v1 as components
-from io import BytesIO
 
 # -------------------------------------------------
 # PAGE SETUP
-# -------------------------------------------------
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Custom Header Layout with logo on left and title on right ---
+# --- Custom Header Layout ---
+from base64 import b64encode
 st.markdown("""
     <style>
     .header-container {
         display: flex;
-        align-items: center;
         justify-content: space-between;
-        background-color: #f0f2f6;
-        padding: 1rem 2rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 2px solid #eee;
+        margin-bottom: 1rem;
+        gap: 1rem;
     }
-    .header-title {
-        font-size: 1.8rem;
-        font-weight: bold;
-        color: #004080;
+    .main-header {
+        color: #0072b2;
+        font-size: 2.4rem;
+        font-weight: 300;
+        margin: 0;
+        line-height: 1.2;
+        flex: 1;
+        text-align: right;
+    }
+    .logo-left {
+        width: 400px;
+        max-height: 200px;
+        object-fit: contain;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------
-# HEADER
-# -------------------------------------------------
+# --- Logo ---
 logo_path = "mmcccl_logo.png"
 if Path(logo_path).exists():
-    logo_html = f'<img src="data:image/png;base64,{base64.b64encode(open(logo_path,"rb").read()).decode()}" width="120">'
+    with open(logo_path, "rb") as f:
+        logo_base64 = b64encode(f.read()).decode()
+    logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo-left" />'
 else:
     logo_html = ""
 
-st.markdown(f"""
+st.markdown(
+    f"""
     <div class="header-container">
         <div>{logo_html}</div>
-        <div class="header-title">MMCCCL Onboarding Document Review & Sign</div>
+        <div><h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1></div>
     </div>
-""", unsafe_allow_html=True)
-
-st.markdown("---")
+""",
+    unsafe_allow_html=True,
+)
 
 # -------------------------------------------------
 # CONFIG
-# -------------------------------------------------
-ROOT_DIR = Path("Onboarding_Documents")
-ROOT_DIR.mkdir(exist_ok=True)
+ROOT = Path("docs")
+CATEGORIES = {
+    "Standard SOPs": ROOT / "sop",
+    "Technical Documents": ROOT / "technical",
+    "Safety Policies": ROOT / "safety",
+}
+SIGNATURES_DIR = Path("signatures")
+SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
+SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
 
-TEMP_DIR = Path(tempfile.gettempdir()) / "mmcccl_temp_pdfs"
-TEMP_DIR.mkdir(exist_ok=True)
+# Ensure all folders exist
+ROOT.mkdir(parents=True, exist_ok=True)
+for folder in CATEGORIES.values():
+    folder.mkdir(parents=True, exist_ok=True)
+
+# Ensure CSV exists
+if not SIGNATURE_CSV.exists():
+    pd.DataFrame(
+        columns=[
+            "timestamp_utc",
+            "timestamp_local",
+            "name",
+            "email",
+            "role",
+            "category",
+            "reviewed_files",
+        ]
+    ).to_csv(SIGNATURE_CSV, index=False)
+
+# -------------------------------------------------
+# OPTIONAL DOCX SUPPORT
+try:
+    import docx
+except Exception:
+    docx = None
 
 # -------------------------------------------------
 # HELPERS
-# -------------------------------------------------
-
-@st.cache_data(show_spinner=False)
 def list_files(folder: Path):
-    """Return all supported files in directory."""
+    """List all supported files including subfolders."""
+    if not folder.exists():
+        return []
     exts = [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".csv", ".xls"]
     return [p for p in sorted(folder.rglob("*")) if p.is_file() and p.suffix.lower() in exts]
 
 
+# ✅ NEW FAST PDF PREVIEW FUNCTION
 def embed_pdf(file_path: Path, height: int = 800):
-    """Streamlit-friendly PDF preview that handles large files gracefully."""
+    """Streamlit-friendly PDF preview that avoids memory bloat and gray box issues."""
     try:
-        size_mb = file_path.stat().st_size / (1024 * 1024)
-        temp_path = TEMP_DIR / file_path.name
+        file_size = file_path.stat().st_size / (1024 * 1024)  # MB
+        temp_dir = Path(tempfile.gettempdir()) / "mmcccl_temp_pdfs"
+        temp_dir.mkdir(exist_ok=True)
+        temp_file = temp_dir / file_path.name
 
-        # Copy to temp folder for serving
-        if not temp_path.exists():
-            shutil.copy(file_path, temp_path)
+        if not temp_file.exists():
+            shutil.copy(file_path, temp_file)
 
-        # Local file URL (prevents gray Chrome box)
-        file_url = f"/media/{temp_path}"
-
-        if size_mb < 5:  # Inline preview only for small files
+        # For smaller PDFs (<5MB): embed inline
+        if file_size <= 5:
+            with open(file_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
             components.html(
                 f"""
-                <iframe
-                    src="{file_url}#toolbar=1"
-                    width="100%"
-                    height="{height}px"
-                    style="border:1px solid #ccc;border-radius:8px;"
-                ></iframe>
+                <iframe src="data:application/pdf;base64,{b64}#toolbar=1"
+                        width="100%" height="{height}px"
+                        style="border:1px solid #ccc;border-radius:8px;"></iframe>
                 """,
                 height=height + 20,
             )
         else:
-            st.info(f"📄 {file_path.name} is large ({size_mb:.1f} MB). Open or download below.")
-            st.markdown(f"[🔗 Open PDF in new tab]({file_url})", unsafe_allow_html=True)
+            # For large files: open externally (no gray Chrome box)
+            st.info(f"📄 {file_path.name} is large ({file_size:.1f} MB). Open or download below.")
+            st.markdown(f"[🔗 Open PDF in new tab](/media/{temp_file})", unsafe_allow_html=True)
 
-        # Always include download button
+        # Always allow download
         with open(file_path, "rb") as f:
             st.download_button(
                 "📥 Download PDF",
@@ -110,76 +149,189 @@ def embed_pdf(file_path: Path, height: int = 800):
             )
 
     except Exception as e:
-        st.error(f"Could not preview {file_path.name}: {e}")
+        st.error(f"Unable to preview {file_path.name}: {e}")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download PDF", data=f.read(), file_name=file_path.name, mime="application/pdf")
 
 
-def read_docx(file_path: Path):
-    """Safely extract text from docx."""
-    from docx import Document
+def preview_docx(file_path: Path, max_paragraphs=40):
+    if docx is None:
+        st.write("Preview unavailable. Please download to view.")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Word File", data=f.read(), file_name=file_path.name)
+        return
+
     try:
-        doc = Document(file_path)
-        return "\n".join([p.text for p in doc.paragraphs])
+        doc = docx.Document(str(file_path))
+        text = []
+        for i, para in enumerate(doc.paragraphs):
+            if para.text.strip():
+                text.append(para.text)
+            if i + 1 >= max_paragraphs:
+                break
+        st.markdown("\n\n".join(text) if text else "*No preview text available.*")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Word File", data=f.read(), file_name=file_path.name)
     except Exception as e:
-        return f"⚠️ Could not open {file_path.name}: {e}"
+        st.error(f"Error reading Word document: {e}")
+
+
+def preview_excel(file_path: Path, nrows=50):
+    try:
+        df = pd.read_excel(file_path, nrows=nrows)
+        st.dataframe(df.head(nrows))
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Excel File", data=f.read(), file_name=file_path.name)
+    except Exception as e:
+        st.error(f"Couldn't preview Excel file: {e}")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Excel File", data=f.read(), file_name=file_path.name)
+
+
+def preview_text(file_path: Path, nlines=200):
+    try:
+        with open(file_path, "r", errors="ignore") as f:
+            text = f.read()
+        st.code(text[:20000])
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Text File", data=f.read(), file_name=file_path.name)
+    except Exception as e:
+        st.error(f"Error reading text file: {e}")
+
+
+def record_signature(name, email, role, category, reviewed_files):
+    ts_utc = datetime.utcnow().isoformat() + "Z"
+    ts_local = datetime.now().isoformat()
+    row = {
+        "timestamp_utc": ts_utc,
+        "timestamp_local": ts_local,
+        "name": name,
+        "email": email,
+        "role": role,
+        "category": category,
+        "reviewed_files": "|".join(reviewed_files),
+    }
+    df = pd.read_csv(SIGNATURE_CSV)
+    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    df.to_csv(SIGNATURE_CSV, index=False)
+    return row
+
+
+def get_signatures_df():
+    try:
+        return pd.read_csv(SIGNATURE_CSV)
+    except Exception:
+        return pd.DataFrame(
+            columns=[
+                "timestamp_utc",
+                "timestamp_local",
+                "name",
+                "email",
+                "role",
+                "category",
+                "reviewed_files",
+            ]
+        )
 
 
 # -------------------------------------------------
-# SIDEBAR
-# -------------------------------------------------
-st.sidebar.title("📁 Document Folders")
-subfolders = [f for f in ROOT_DIR.iterdir() if f.is_dir()]
-selected_folder = st.sidebar.selectbox("Select a folder to view:", ["(Select)"] + [f.name for f in subfolders])
+# MAIN UI
+st.markdown("""Please review all documents in each tab, mark them as **Reviewed**, and sign when done.""")
 
-# -------------------------------------------------
-# MAIN CONTENT
-# -------------------------------------------------
-if selected_folder != "(Select)":
-    folder_path = ROOT_DIR / selected_folder
-    st.markdown(f"### 📂 Folder: `{selected_folder}`")
+tabs = st.tabs(list(CATEGORIES.keys()))
 
-    files = list_files(folder_path)
+for i, (category_name, folder) in enumerate(CATEGORIES.items()):
+    with tabs[i]:
+        st.header(category_name)
+        st.write(f"Folder: {folder}")
 
-    if not files:
-        st.warning("No supported files found in this folder.")
-    else:
+        files = list_files(folder)
+        if not files:
+            st.info("No files found in this folder. Please ask the lab admin to upload required documents.")
+            continue
+
+        reviewed = {}
         for f in files:
-            with st.expander(f"📄 {f.name}", expanded=False):
+            st.subheader(f.name)
+            col1, col2 = st.columns([3, 1])
+            with col1:
                 suffix = f.suffix.lower()
                 if suffix == ".pdf":
-                    embed_pdf(f)
-                elif suffix in [".docx", ".doc"]:
-                    st.text_area("Document Preview", read_docx(f), height=400)
-                    with open(f, "rb") as data:
-                        st.download_button("📥 Download DOCX", data=data, file_name=f.name)
-                elif suffix in [".xlsx", ".xls"]:
-                    try:
-                        df = pd.read_excel(f)
-                        st.dataframe(df)
-                        with open(f, "rb") as data:
-                            st.download_button("📥 Download Excel", data=data, file_name=f.name)
-                    except Exception as e:
-                        st.error(f"Could not open Excel file: {e}")
-                elif suffix == ".csv":
-                    try:
-                        df = pd.read_csv(f)
-                        st.dataframe(df)
-                        with open(f, "rb") as data:
-                            st.download_button("📥 Download CSV", data=data, file_name=f.name)
-                    except Exception as e:
-                        st.error(f"Could not open CSV file: {e}")
+                    st.write("PDF Preview:")
+                    embed_pdf(f, height=600)
+                elif suffix in [".doc", ".docx"]:
+                    st.write("Preview (first paragraphs):")
+                    preview_docx(f)
+                elif suffix in [".xls", ".xlsx", ".csv"]:
+                    st.write("Preview (first rows):")
+                    preview_excel(f)
                 elif suffix == ".txt":
-                    try:
-                        st.text_area("Text File Content", f.read_text(), height=400)
-                        with open(f, "rb") as data:
-                            st.download_button("📥 Download TXT", data=data, file_name=f.name)
-                    except Exception as e:
-                        st.error(f"Could not open text file: {e}")
+                    preview_text(f)
+                else:
+                    st.write("No preview available.")
+                    with open(f, "rb") as fb:
+                        st.download_button("📥 Download File", data=fb.read(), file_name=f.name)
+
+            with col2:
+                reviewed[f.name] = st.checkbox("Reviewed", key=f"reviewed_{category_name}_{f.name}")
+
+        st.markdown("---")
+        st.write("When all files above are marked **Reviewed**, please sign below to record your acknowledgement.")
+        all_reviewed = all(reviewed.values()) if reviewed else False
+        if not all_reviewed:
+            st.warning("You must mark every file above as Reviewed before signing.")
+
+        with st.form(key=f"form_signature_{category_name}"):
+            st.write("**Acknowledgement / Signature**")
+            name = st.text_input("Full name", key=f"name_{category_name}")
+            email = st.text_input("Email", key=f"email_{category_name}")
+            role = st.text_input("Role / Position", key=f"role_{category_name}")
+            submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
+
+            if submit_btn:
+                if not all_reviewed:
+                    st.error("Cannot sign: not all documents are marked as reviewed.")
+                elif not name or not email:
+                    st.error("Please provide your name and email before signing.")
+                else:
+                    reviewed_files = [fn for fn, val in reviewed.items() if val]
+                    row = record_signature(name, email, role, category_name, reviewed_files)
+                    st.success("Acknowledgement recorded ✅")
+                    st.json(row)
+
+# -------------------------------------------------
+# SIDEBAR ADMIN AREA
+st.sidebar.header("Admin / Personal Log")
+
+sign_df = get_signatures_df()
+st.sidebar.download_button(
+    label="📥 Download Signature Log (CSV)",
+    data=sign_df.to_csv(index=False).encode("utf-8"),
+    file_name="review_signatures.csv",
+    mime="text/csv",
+)
+
+st.sidebar.write("Recent signers:")
+if sign_df.empty:
+    st.sidebar.write("*No signatures recorded yet.*")
 else:
-    st.info("👈 Please select a folder from the sidebar to view its contents.")
+    st.sidebar.table(sign_df.sort_values("timestamp_local", ascending=False).head(10))
 
+# --- Admin Upload ---
+st.sidebar.markdown("---")
+st.sidebar.header("Admin: Upload Documents")
 
-# -------------------------------------------------
-# FOOTER
-# -------------------------------------------------
+if st.sidebar.checkbox("Show upload form"):
+    upload_cat = st.sidebar.selectbox("Category", list(CATEGORIES.keys()))
+    uploaded = st.sidebar.file_uploader("Choose file(s) to upload", accept_multiple_files=True)
+    if st.sidebar.button("Upload"):
+        target_dir = CATEGORIES[upload_cat]
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for uf in uploaded:
+            save_path = target_dir / uf.name
+            with open(save_path, "wb") as f:
+                f.write(uf.getbuffer())
+        st.sidebar.success(f"Saved {len(uploaded)} file(s) to {target_dir}")
+
 st.markdown("---")
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption("Developed by Dollada Srisai")
