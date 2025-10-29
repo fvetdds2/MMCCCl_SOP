@@ -1,8 +1,34 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+from io import BytesIO
 from pathlib import Path
-from datetime import datetime
-import base64
+
+# -------------------------------------------------
+# SIMPLE LOGIN / PASSCODE PROTECTION
+# -------------------------------------------------
+PASSCODE = "mmcccl2025"  # <-- change this to your secret code
+
+# Initialize session state
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+# Login form
+if not st.session_state.authenticated:
+    st.title("🔒 Translational Pathology Dashboard Login")
+
+    pass_input = st.text_input("Enter Passcode:", type="password")
+
+    if st.button("Submit"):
+        if pass_input == PASSCODE:
+            st.session_state.authenticated = True
+            st.success("✅ Access granted. Loading dashboard...")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Incorrect passcode. Please try again.")
+
+    st.stop()  # Stop the script here if not authenticated
+
 
 # -------------------------------------------------
 # PAGE SETUP

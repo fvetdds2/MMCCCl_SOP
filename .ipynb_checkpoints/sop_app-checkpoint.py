@@ -1,21 +1,80 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import base64
+import plotly.express as px
+from io import BytesIO
 from pathlib import Path
-from datetime import datetime
-import os
-import io
 
-# Optional: for reading docx content if you want inline preview (pip install python-docx)
-try:
-    import docx
-except Exception:
-    docx = None
+# -------------------------------------------------
+# SIMPLE LOGIN / PASSCODE PROTECTION
+# -------------------------------------------------
+PASSCODE = "mmcccl2025"  # <-- change this to your secret code
 
-st.set_page_config(page_title="Lab Onboarding — Document Review & Sign", layout="wide")
+# Initialize session state
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-# --- CONFIG ---
+# Login form
+if not st.session_state.authenticated:
+    st.title("🔒 Translational Pathology Dashboard Login")
+
+    pass_input = st.text_input("Enter Passcode:", type="password")
+
+    if st.button("Submit"):
+        if pass_input == PASSCODE:
+            st.session_state.authenticated = True
+            st.success("✅ Access granted. Loading dashboard...")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Incorrect passcode. Please try again.")
+
+    st.stop()  # Stop the script here if not authenticated
+
+
+# -------------------------------------------------
+# PAGE SETUP
+st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
+
+# --- Custom Header Layout ---
+st.markdown("""
+    <style>
+    .header-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 2px solid #eee;
+        margin-bottom: 1rem;
+    }
+    .main-header {
+        color: #0072b2;
+        font-size: 2.2rem;
+        font-weight: 400;
+        text-align: right;
+    }
+    .logo-left {
+        width: 300px;
+        max-height: 150px;
+        object-fit: contain;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- Header / Logo ---
+logo_path = "mmcccl_logo.png"
+logo_html = ""
+if Path(logo_path).exists():
+    logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
+    logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo-left" />'
+
+st.markdown(f"""
+<div class="header-container">
+  <div>{logo_html}</div>
+  <div><h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1></div>
+</div>
+""", unsafe_allow_html=True)
+
+# -------------------------------------------------
+# CONFIG
 ROOT = Path("docs")
 CATEGORIES = {
     "Standard SOPs": ROOT / "sop",
@@ -23,66 +82,44 @@ CATEGORIES = {
     "Safety Policies": ROOT / "safety",
 }
 SIGNATURES_DIR = Path("signatures")
-SIGNATURES_DIR.mkdir(exist_ok=True)
+SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
+REVIEW_PROGRESS_CSV = SIGNATURES_DIR / "review_progress.csv"
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
+LAST_USER_CSV = SIGNATURES_DIR / "last_user.csv"
 
-# ensure signature CSV exists with headers
+for folder in CATEGORIES.values():
+    folder.mkdir(parents=True, exist_ok=True)
+
+# -------------------------------------------------
+# INIT CSVs
+if not REVIEW_PROGRESS_CSV.exists():
+    pd.DataFrame(columns=["name", "email", "category", "file", "reviewed", "timestamp"]).to_csv(REVIEW_PROGRESS_CSV, index=False)
 if not SIGNATURE_CSV.exists():
-    pd.DataFrame(columns=[
-        "timestamp_utc", "timestamp_local", "name", "email", "role",
-        "category", "reviewed_files"
-    ]).to_csv(SIGNATURE_CSV, index=False)
+    pd.DataFrame(columns=["timestamp_utc", "timestamp_local", "name", "email", "role", "category", "reviewed_files"]).to_csv(SIGNATURE_CSV, index=False)
+if not LAST_USER_CSV.exists():
+    pd.DataFrame(columns=["name", "email", "role"]).to_csv(LAST_USER_CSV, index=False)
 
-# --- Helper functions ---
+# -------------------------------------------------
+# HELPERS
 def list_files(folder: Path):
-    if not folder.exists():
-        return []
-    # common doc types
-    exts = [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".csv", ".xls"]
-    files = [p for p in sorted(folder.iterdir()) if p.suffix.lower() in exts]
-    return files
+    return [p for p in sorted(folder.rglob("*.pdf")) if p.is_file()]
 
-def file_download_link(file_path: Path, label: str = None):
-    label = label or file_path.name
-    with open(file_path, "rb") as f:
-        data = f.read()
-    b64 = base64.b64encode(data).decode()
-    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{file_path.name}">{label}</a>'
-    return href
-
-def embed_pdf(file_path: Path, height: int = 700):
-    """Return HTML to embed a PDF file inside an iframe using base64."""
-    with open(file_path, "rb") as f:
-        data = f.read()
-    b64 = base64.b64encode(data).decode()
-    html = f'''
-    <iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}px" style="border: none;"></iframe>
-    '''
-    st.components.v1.html(html, height=height+10)
-
-def preview_docx(file_path: Path, max_paragraphs=40):
-    if docx is None:
-        st.write("Preview unavailable (python-docx not installed). Use download button.")
-        return
-    doc = docx.Document(str(file_path))
-    text = []
-    for i, para in enumerate(doc.paragraphs):
-        text.append(para.text)
-        if i+1 >= max_paragraphs:
-            break
-    st.markdown("\n\n".join(text) if text else "*No preview text available.*")
-
-def preview_excel(file_path: Path, nrows=50):
+def get_progress():
     try:
-        df = pd.read_excel(file_path, engine="openpyxl")
-        st.dataframe(df.head(nrows))
-    except Exception as e:
-        st.error(f"Couldn't preview Excel file: {e}")
+        return pd.read_csv(REVIEW_PROGRESS_CSV)
+    except Exception:
+        return pd.DataFrame(columns=["name", "email", "category", "file", "reviewed", "timestamp"])
 
-def preview_text(file_path: Path, nlines=200):
-    with open(file_path, "r", errors="ignore") as f:
-        text = f.read()
-    st.code(text[:20000])  # limit size
+def save_progress_row(name, email, category, file_path):
+    df = get_progress()
+    rel_path = str(file_path.relative_to(ROOT))
+    ts = datetime.now().isoformat()
+    mask = (df["name"] == name) & (df["email"] == email) & (df["file"] == rel_path)
+    if mask.any():
+        df.loc[mask, ["reviewed", "timestamp"]] = [True, ts]
+    else:
+        df.loc[len(df)] = [name, email, category, rel_path, True, ts]
+    df.to_csv(REVIEW_PROGRESS_CSV, index=False)
 
 def record_signature(name, email, role, category, reviewed_files):
     ts_utc = datetime.utcnow().isoformat() + "Z"
@@ -101,112 +138,153 @@ def record_signature(name, email, role, category, reviewed_files):
     df.to_csv(SIGNATURE_CSV, index=False)
     return row
 
-def get_signatures_df():
-    return pd.read_csv(SIGNATURE_CSV)
+def save_last_user(name, email, role):
+    pd.DataFrame([{"name": name, "email": email, "role": role}]).to_csv(LAST_USER_CSV, index=False)
 
-# --- UI ---
-st.title("Lab Onboarding — Document Review & Signature")
-st.markdown(
-    """
-    Welcome! Use the tabs below to preview and review required documents.
-    After marking each file as **Reviewed** in a category, sign the acknowledgement.
-    Your signature (name/email/role/timestamp + files reviewed) will be recorded.
-    """
-)
+def load_last_user():
+    try:
+        df = pd.read_csv(LAST_USER_CSV)
+        if not df.empty:
+            return df.iloc[0].to_dict()
+    except Exception:
+        pass
+    return {"name": "", "email": "", "role": ""}
 
+def load_user_progress_to_state(name, email):
+    df = get_progress()
+    user_files = df[(df["name"] == name) & (df["email"] == email) & (df["reviewed"] == True)]["file"].tolist()
+    st.session_state["reviewed_files"] = user_files
+
+# -------------------------------------------------
+# SIDEBAR SESSION RESTORE
+st.sidebar.header("User Session")
+last_user = load_last_user()
+
+if st.sidebar.button(f"▶ Continue as {last_user['name']} ({last_user['email']})" if last_user["name"] else "No saved user"):
+    st.session_state["restore_user"] = True
+    st.rerun()
+
+if st.session_state.get("restore_user", False):
+    st.session_state["user_name"] = last_user["name"]
+    st.session_state["user_email"] = last_user["email"]
+    st.session_state["user_role"] = last_user["role"]
+    load_user_progress_to_state(last_user["name"], last_user["email"])
+    st.session_state["restore_user"] = False
+    st.sidebar.success("Session restored! ✅")
+
+# -------------------------------------------------
+# MAIN UI
+st.markdown("Please review all documents in each tab, mark them as **Reviewed**, and sign when finished. Progress is saved automatically.")
 tabs = st.tabs(list(CATEGORIES.keys()))
 
 for i, (category_name, folder) in enumerate(CATEGORIES.items()):
     with tabs[i]:
-        st.header(category_name)
-        st.write(f"Folder: `{folder}`")
-        files = list_files(folder)
-        if not files:
-            st.info("No files found in this folder. Please ask the lab admin to upload required documents.")
+        st.subheader(category_name)
+        subfolders = sorted([p for p in folder.iterdir() if p.is_dir()])
+        if not subfolders:
+            subfolders = [folder]
+
+        default_name = st.session_state.get("user_name", "")
+        default_email = st.session_state.get("user_email", "")
+        default_role = st.session_state.get("user_role", "")
+
+        name = st.text_input(f"Your Name ({category_name})", value=default_name, key=f"name_{i}")
+        email = st.text_input(f"Your Email ({category_name})", value=default_email, key=f"email_{i}")
+        role = st.text_input(f"Your Role ({category_name})", value=default_role, key=f"role_{i}")
+
+        if not name or not email:
+            st.warning("Enter your name and email to track your review progress.")
             continue
 
-        # Container for files list + individual checkboxes
+        st.session_state["user_name"] = name
+        st.session_state["user_email"] = email
+        st.session_state["user_role"] = role
+        save_last_user(name, email, role)
+
+        if "reviewed_files" not in st.session_state:
+            load_user_progress_to_state(name, email)
+        reviewed_files = set(st.session_state.get("reviewed_files", []))
+
         reviewed = {}
-        for f in files:
-            st.subheader(f.name)
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                if f.suffix.lower() == ".pdf":
-                    embed_pdf(f, height=450)
-                elif f.suffix.lower() in [".doc", ".docx"]:
-                    st.write("Preview (first paragraphs):")
-                    preview_docx(f)
-                elif f.suffix.lower() in [".xls", ".xlsx", ".csv"]:
-                    st.write("Preview of the spreadsheet (first rows):")
-                    preview_excel(f)
-                elif f.suffix.lower() == ".txt":
-                    preview_text(f)
-                else:
-                    st.write("No inline preview available.")
-                st.markdown(file_download_link(f, label="Download file"), unsafe_allow_html=True)
-            with col2:
-                # Unique key per file so Streamlit remembers state
-                checkbox_key = f"reviewed_{category_name}_{f.name}"
-                reviewed[f.name] = st.checkbox("Reviewed", key=checkbox_key)
+        total_files = 0
+        reviewed_count = 0
+
+        for sub in subfolders:
+            st.markdown(f"### 📁 {sub.name}")
+            files = list_files(sub)
+            if not files:
+                st.info("No PDF files found in this folder.")
+                continue
+
+            for file_path in files:
+                total_files += 1
+                rel_path = str(file_path.relative_to(ROOT))
+                was_reviewed = rel_path in reviewed_files
+
+                col1, col2, col3 = st.columns([4, 1.5, 1])
+                with col1:
+                    st.write(f"📄 {file_path.name}")
+                with col2:
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            "📥 Download PDF",
+                            data=f.read(),
+                            file_name=file_path.name,
+                            mime="application/pdf",
+                            key=f"dl_{category_name}_{file_path.name}",
+                        )
+                with col3:
+                    chk = st.checkbox("Reviewed", value=was_reviewed, key=f"chk_{category_name}_{file_path.name}")
+
+                reviewed[file_path] = chk
+                if chk and not was_reviewed:
+                    save_progress_row(name, email, category_name, file_path)
+                    st.session_state["reviewed_files"].append(rel_path)
+                if chk:
+                    reviewed_count += 1
+
+        st.progress(reviewed_count / max(total_files, 1))
+        st.caption(f"{reviewed_count} of {total_files} documents reviewed.")
 
         st.markdown("---")
-        st.write("When all files above are marked **Reviewed**, please sign below to record your acknowledgement.")
+        st.write("When all files are marked **Reviewed**, please sign below.")
 
-        all_reviewed = all(reviewed.values())
+        all_reviewed = total_files > 0 and reviewed_count == total_files
         if not all_reviewed:
-            st.warning("You must mark every file above as Reviewed before signing.")
-        # Signature form
-        with st.form(key=f"form_signature_{category_name}"):
-            st.write("**Acknowledgement / Signature**")
-            name = st.text_input("Full name", key=f"name_{category_name}")
-            email = st.text_input("Email", key=f"email_{category_name}")
-            role = st.text_input("Role / Position", key=f"role_{category_name}")
-            submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
+            st.info("You can stop and return later — progress is saved automatically.")
 
+        with st.form(key=f"form_signature_{category_name}"):
+            submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
             if submit_btn:
                 if not all_reviewed:
-                    st.error("Cannot sign: not all documents are marked as reviewed.")
-                elif not name or not email:
-                    st.error("Please provide your name and email before signing.")
+                    st.warning("Please review all files before final signing.")
                 else:
-                    reviewed_files = [fn for fn, val in reviewed.items() if val]
-                    row = record_signature(name, email, role, category_name, reviewed_files)
+                    reviewed_list = [p.name for p, val in reviewed.items() if val]
+                    row = record_signature(name, email, role, category_name, reviewed_list)
                     st.success("Acknowledgement recorded ✅")
                     st.json(row)
-                    st.write("A record of your acknowledgement has been saved. The onboarding admin will be notified (if configured).")
 
-# --- Admin / download area ---
-st.sidebar.header("Admin / Personal Log")
-st.sidebar.write("Download the review/signature log or view recent signers.")
-
-sign_df = get_signatures_df()
-st.sidebar.download_button(
-    label="Download signature log (CSV)",
-    data=sign_df.to_csv(index=False).encode("utf-8"),
-    file_name="review_signatures.csv",
-    mime="text/csv",
-)
-
-st.sidebar.write("Recent signers:")
-if sign_df.empty:
-    st.sidebar.write("*No signatures recorded yet.*")
-else:
-    st.sidebar.table(sign_df.sort_values("timestamp_local", ascending=False).head(10))
-
-# Optional: allow admin to upload missing docs
+# -------------------------------------------------
+# SIDEBAR ADMIN
 st.sidebar.markdown("---")
-st.sidebar.header("Admin: Upload documents")
-if st.sidebar.checkbox("Show upload form"):
-    upload_cat = st.sidebar.selectbox("Category", list(CATEGORIES.keys()))
-    uploaded = st.sidebar.file_uploader("Choose file to upload", accept_multiple_files=True)
-    if st.sidebar.button("Upload"):
-        target_dir = CATEGORIES[upload_cat]
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for uf in uploaded:
-            save_path = target_dir / uf.name
-            with open(save_path, "wb") as f:
-                f.write(uf.getbuffer())
-        st.sidebar.success(f"Saved {len(uploaded)} file(s) to {target_dir}")
+st.sidebar.header("Admin / Logs")
 
-st.markdown("---")
-st.caption("Developed by Data Science • Lab Onboarding Utility — modify folder paths as needed.")
+sign_df = pd.read_csv(SIGNATURE_CSV)
+if not sign_df.empty:
+    st.sidebar.download_button(
+        label="📥 Download Signature Log (CSV)",
+        data=sign_df.to_csv(index=False).encode("utf-8"),
+        file_name="review_signatures.csv",
+        mime="text/csv",
+    )
+
+progress_df = get_progress()
+if not progress_df.empty:
+    st.sidebar.download_button(
+        label="📥 Download Review Progress Log (CSV)",
+        data=progress_df.to_csv(index=False).encode("utf-8"),
+        file_name="review_progress.csv",
+        mime="text/csv",
+    )
+
+st.sidebar.caption("Developed by Dollada Srisai")
