@@ -58,20 +58,14 @@ st.markdown("""
 
     .main-header {
         color: #4b1e29; /* Deep maroon */
-        font-size: 1.4rem; /* Reduced size for balance */
-        font-weight: 600;
+        font-size: 1.0rem; /* Reduced size for balance */
+        font-weight: 400;
         line-height: 1.3;
         margin: 0;
         letter-spacing: 0.5px;
     }
 
-    .sub-header {
-        color: #5e5e5e;
-        font-size: 0.9rem;
-        font-weight: 400;
-        margin-top: 0.3rem;
-    }
-    </style>
+   </style>
 """, unsafe_allow_html=True)
 
 # --- Header / Logo ---
