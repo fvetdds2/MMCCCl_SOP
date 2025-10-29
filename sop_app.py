@@ -112,17 +112,11 @@ def list_files(folder: Path):
 
 # ✅ NEW FAST PDF PREVIEW FUNCTION
 def embed_pdf(file_path: Path, height: int = 800):
-    """Streamlit-friendly PDF preview that avoids memory bloat and gray box issues."""
+    """Streamlit-safe PDF viewer that avoids Chrome gray box issues for large files."""
     try:
-        file_size = file_path.stat().st_size / (1024 * 1024)  # MB
-        temp_dir = Path(tempfile.gettempdir()) / "mmcccl_temp_pdfs"
-        temp_dir.mkdir(exist_ok=True)
-        temp_file = temp_dir / file_path.name
+        file_size = file_path.stat().st_size / (1024 * 1024)  # in MB
 
-        if not temp_file.exists():
-            shutil.copy(file_path, temp_file)
-
-        # For smaller PDFs (<5MB): embed inline
+        # For small PDFs, use inline preview (base64)
         if file_size <= 5:
             with open(file_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
@@ -130,16 +124,38 @@ def embed_pdf(file_path: Path, height: int = 800):
                 f"""
                 <iframe src="data:application/pdf;base64,{b64}#toolbar=1"
                         width="100%" height="{height}px"
-                        style="border:1px solid #ccc;border-radius:8px;"></iframe>
+                        style="border:1px solid #ccc;border-radius:8px;">
+                </iframe>
                 """,
                 height=height + 20,
             )
         else:
-            # For large files: open externally (no gray Chrome box)
-            st.info(f"📄 {file_path.name} is large ({file_size:.1f} MB). Open or download below.")
-            st.markdown(f"[🔗 Open PDF in new tab](/media/{temp_file})", unsafe_allow_html=True)
+            # For large PDFs, create a temporary served link
+            static_dir = Path(".streamlit/static_pdfs")
+            static_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = file_path.name.replace(" ", "_")
+            static_path = static_dir / safe_name
+            if not static_path.exists():
+                shutil.copy(file_path, static_path)
 
-        # Always allow download
+            # Build URL dynamically from app base
+            app_base = st.get_option("server.baseUrlPath") or ""
+            pdf_url = f"{app_base}/static_pdfs/{safe_name}"
+
+            st.info(f"📄 {file_path.name} is large ({file_size:.1f} MB). Open or download below.")
+            st.markdown(
+                f"""
+                <div style="text-align:center;margin-top:10px;">
+                    <a href="{pdf_url}" target="_blank"
+                       style="font-size:1.1rem;color:#0072b2;text-decoration:none;">
+                       🔗 Open PDF in new tab
+                    </a>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # Always include a download button
         with open(file_path, "rb") as f:
             st.download_button(
                 "📥 Download PDF",
@@ -152,6 +168,8 @@ def embed_pdf(file_path: Path, height: int = 800):
         st.error(f"Unable to preview {file_path.name}: {e}")
         with open(file_path, "rb") as f:
             st.download_button("📥 Download PDF", data=f.read(), file_name=file_path.name, mime="application/pdf")
+
+
 
 
 def preview_docx(file_path: Path, max_paragraphs=40):
