@@ -25,7 +25,7 @@ st.markdown("""
     }
     .main-header {
         color: #0072b2;
-        font-size: 2.4rem;
+        font-size: 1.4rem;
         font-weight: 300;
         margin: 0;
         line-height: 1.2;
