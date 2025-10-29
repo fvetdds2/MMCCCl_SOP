@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import base64
 
 # -------------------------------------------------
 # PAGE SETUP
@@ -36,7 +37,6 @@ st.markdown("""
 logo_path = "mmcccl_logo.png"
 logo_html = ""
 if Path(logo_path).exists():
-    import base64
     logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
     logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo-left" />'
 
@@ -55,27 +55,31 @@ CATEGORIES = {
     "Technical Documents": ROOT / "technical",
     "Safety Policies": ROOT / "safety",
 }
+
 SIGNATURES_DIR = Path("signatures")
 SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
+
 REVIEW_PROGRESS_CSV = SIGNATURES_DIR / "review_progress.csv"
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
+LAST_USER_CSV = SIGNATURES_DIR / "last_user.csv"
 
-# Ensure folder structure exists
+# Ensure folders exist
 for folder in CATEGORIES.values():
     folder.mkdir(parents=True, exist_ok=True)
 
-# -------------------------------------------------
-# DATA FILES
+# Initialize files
 if not REVIEW_PROGRESS_CSV.exists():
     pd.DataFrame(columns=["name", "email", "category", "file", "reviewed", "timestamp"]).to_csv(REVIEW_PROGRESS_CSV, index=False)
 
 if not SIGNATURE_CSV.exists():
     pd.DataFrame(columns=["timestamp_utc", "timestamp_local", "name", "email", "role", "category", "reviewed_files"]).to_csv(SIGNATURE_CSV, index=False)
 
+if not LAST_USER_CSV.exists():
+    pd.DataFrame(columns=["name", "email", "role"]).to_csv(LAST_USER_CSV, index=False)
+
 # -------------------------------------------------
 # HELPERS
 def list_files(folder: Path):
-    """List all PDF files, including subfolders."""
     return [p for p in sorted(folder.rglob("*.pdf")) if p.is_file()]
 
 def get_progress():
@@ -85,7 +89,6 @@ def get_progress():
         return pd.DataFrame(columns=["name", "email", "category", "file", "reviewed", "timestamp"])
 
 def save_progress_row(name, email, category, file_path):
-    """Save progress when a file is reviewed."""
     df = get_progress()
     rel_path = str(file_path.relative_to(ROOT))
     ts = datetime.now().isoformat()
@@ -113,122 +116,32 @@ def record_signature(name, email, role, category, reviewed_files):
     df.to_csv(SIGNATURE_CSV, index=False)
     return row
 
+def save_last_user(name, email, role):
+    pd.DataFrame([{"name": name, "email": email, "role": role}]).to_csv(LAST_USER_CSV, index=False)
+
+def load_last_user():
+    try:
+        df = pd.read_csv(LAST_USER_CSV)
+        if not df.empty:
+            return df.iloc[0].to_dict()
+    except Exception:
+        pass
+    return {"name": "", "email": "", "role": ""}
+
+# -------------------------------------------------
+# SIDEBAR: CONTINUE SESSION
+st.sidebar.header("User Session")
+last_user = load_last_user()
+
+if last_user["name"]:
+    if st.sidebar.button(f"▶ Continue as {last_user['name']} ({last_user['email']})"):
+        st.session_state["user_name"] = last_user["name"]
+        st.session_state["user_email"] = last_user["email"]
+        st.session_state["user_role"] = last_user["role"]
+        st.sidebar.success("Session restored!")
+
 # -------------------------------------------------
 # MAIN UI
 st.markdown("Please review all documents in each tab, mark them as **Reviewed**, and sign when finished. Progress is saved automatically.")
 
-tabs = st.tabs(list(CATEGORIES.keys()))
-progress_df = get_progress()
-
-for i, (category_name, folder) in enumerate(CATEGORIES.items()):
-    with tabs[i]:
-        st.subheader(category_name)
-
-        # List subfolders if any
-        subfolders = sorted([p for p in folder.iterdir() if p.is_dir()])
-        if not subfolders:
-            subfolders = [folder]
-
-        name = st.text_input(f"Your Name ({category_name})", key=f"name_{i}")
-        email = st.text_input(f"Your Email ({category_name})", key=f"email_{i}")
-        role = st.text_input(f"Your Role ({category_name})", key=f"role_{i}")
-
-        if not name or not email:
-            st.warning("Enter your name and email to track your review progress.")
-            continue
-
-        reviewed = {}
-        total_files = 0
-        reviewed_count = 0
-
-        for sub in subfolders:
-            st.markdown(f"### 📁 {sub.name}")
-            files = list_files(sub)
-            if not files:
-                st.info("No PDF files found in this folder.")
-                continue
-
-            for file_path in files:
-                total_files += 1
-                rel_path = str(file_path.relative_to(ROOT))
-                already_reviewed = (
-                    (progress_df["name"] == name)
-                    & (progress_df["email"] == email)
-                    & (progress_df["file"] == rel_path)
-                    & (progress_df["reviewed"] == True)
-                )
-                was_reviewed = already_reviewed.any()
-
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    st.write(f"📄 {file_path.name}")
-                with col2:
-                    chk = st.checkbox(
-                        "Reviewed",
-                        value=was_reviewed,
-                        key=f"chk_{category_name}_{file_path.name}",
-                    )
-                reviewed[file_path] = chk
-
-                if chk and not was_reviewed:
-                    save_progress_row(name, email, category_name, file_path)
-                if chk:
-                    reviewed_count += 1
-
-                with open(file_path, "rb") as f:
-                    st.download_button(
-                        "📥 Download PDF",
-                        data=f.read(),
-                        file_name=file_path.name,
-                        mime="application/pdf",
-                        key=f"dl_{file_path.name}",
-                    )
-
-        st.progress(reviewed_count / max(total_files, 1))
-
-        # --- Signature Section ---
-        st.markdown("---")
-        st.write("When all files are marked **Reviewed**, please sign below.")
-
-        all_reviewed = total_files > 0 and reviewed_count == total_files
-        if not all_reviewed:
-            st.info("You can stop and return later — progress is saved automatically.")
-
-        with st.form(key=f"form_signature_{category_name}"):
-            submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
-            if submit_btn:
-                if not all_reviewed:
-                    st.warning("Please review all files before final signing.")
-                elif not name or not email:
-                    st.error("Please fill in your name and email.")
-                else:
-                    reviewed_files = [p.name for p, val in reviewed.items() if val]
-                    row = record_signature(name, email, role, category_name, reviewed_files)
-                    st.success("Acknowledgement recorded ✅")
-                    st.json(row)
-
-# -------------------------------------------------
-# SIDEBAR
-st.sidebar.header("Admin / Personal Log")
-sign_df = pd.read_csv(SIGNATURE_CSV)
-if not sign_df.empty:
-    st.sidebar.download_button(
-        label="📥 Download Signature Log (CSV)",
-        data=sign_df.to_csv(index=False).encode("utf-8"),
-        file_name="review_signatures.csv",
-        mime="text/csv",
-    )
-else:
-    st.sidebar.write("*No signatures yet.*")
-
-progress_df = get_progress()
-if not progress_df.empty:
-    st.sidebar.download_button(
-        label="📥 Download Review Progress Log (CSV)",
-        data=progress_df.to_csv(index=False).encode("utf-8"),
-        file_name="review_progress.csv",
-        mime="text/csv",
-    )
-
-st.sidebar.markdown("---")
-st.sidebar.caption("Developed by Dollada Srisai")
+tabs = st.tabs(list
