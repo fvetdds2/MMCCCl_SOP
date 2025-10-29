@@ -35,19 +35,18 @@ if not st.session_state.authenticated:
 # PAGE SETUP
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Elegant Header Layout ---
+# --- Elegant Header Layout with Meharry Theme ---
 st.markdown("""
     <style>
     .header-container {
         display: flex;
-        justify-content: flex-start;
         align-items: center;
         gap: 1.5rem;
-        padding: 0.8rem 1.2rem;
-        border-bottom: 1px solid #dcdcdc;
-        background-color: #fafafa;
-        border-radius: 8px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        padding: 1rem 1.5rem;
+        background-color: #f8f5f6; /* Soft maroon-tinted background */
+        border-radius: 10px;
+        border: 1px solid #e3d9dc;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
         margin-bottom: 1.2rem;
     }
 
@@ -58,15 +57,16 @@ st.markdown("""
     }
 
     .main-header {
-        color: #2b3a55; /* Elegant deep navy */
-        font-size: 1.6rem;
-        font-weight: 500;
-        line-height: 1.4;
+        color: #4b1e29; /* Deep maroon */
+        font-size: 1.4rem; /* Reduced size for balance */
+        font-weight: 600;
+        line-height: 1.3;
         margin: 0;
+        letter-spacing: 0.5px;
     }
 
     .sub-header {
-        color: #6c757d;
+        color: #5e5e5e;
         font-size: 0.9rem;
         font-weight: 400;
         margin-top: 0.3rem;
@@ -75,7 +75,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Header / Logo ---
-logo_path = "mmcccl_logo.png"  # your logo file
+logo_path = "mmcccl_logo.png"  # update if different filename
 logo_html = ""
 if Path(logo_path).exists():
     logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
@@ -87,10 +87,10 @@ st.markdown(f"""
     <div>{logo_html}</div>
     <div>
         <h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1>
-        <p class="sub-header">Consolidated Clinical Laboratories – Meharry Medical College</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 # -------------------------------------------------
 # CONFIG
