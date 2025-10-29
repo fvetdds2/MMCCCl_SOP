@@ -32,17 +32,18 @@ if not st.session_state.authenticated:
 
 
 # -------------------------------------------------
+
 # PAGE SETUP
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Elegant Header Layout with Meharry Theme ---
+# --- Elegant Header Layout with Meharry Theme (Refined Title Size) ---
 st.markdown("""
     <style>
     .header-container {
         display: flex;
         align-items: center;
-        gap: 1.5rem;
-        padding: 1rem 1.5rem;
+        gap: 1.2rem;
+        padding: 0.9rem 1.4rem;
         background-color: #f8f5f6; /* Soft maroon-tinted background */
         border-radius: 10px;
         border: 1px solid #e3d9dc;
@@ -51,25 +52,26 @@ st.markdown("""
     }
 
     .logo-left {
-        width: 240px;
-        max-height: 100px;
+        width: 210px;
+        max-height: 90px;
         object-fit: contain;
     }
 
     .main-header {
         color: #4b1e29; /* Deep maroon */
-        font-size: 1.0rem; /* Reduced size for balance */
-        font-weight: 400;
+        font-size: 1.1rem; /* ↓ Reduced for elegant proportion */
+        font-weight: 600;
         line-height: 1.3;
         margin: 0;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.4px;
     }
 
-   </style>
+    
+    </style>
 """, unsafe_allow_html=True)
 
 # --- Header / Logo ---
-logo_path = "mmcccl_logo.png"  # update if different filename
+logo_path = "mmcccl_logo.png"  # adjust if needed
 logo_html = ""
 if Path(logo_path).exists():
     logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
@@ -84,7 +86,6 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 
 # -------------------------------------------------
 # CONFIG
