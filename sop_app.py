@@ -62,7 +62,7 @@ st.markdown("""
 
     .main-header {
         color: #6e1e33;  /* Meharry maroon */
-        font-size: 1.4rem;
+        font-size: 1.0rem;
         font-weight: 650;
         line-height: 1.25;
         margin: 0;
@@ -71,14 +71,14 @@ st.markdown("""
 
     .sub-header {
         color: #7a4f55;  /* softer complementary tone */
-        font-size: 0.9rem;
+        font-size: 0.6rem;
         font-weight: 400;
         margin-top: 0.25rem;
         letter-spacing: 0.3px;
     }
 
     @media (max-width: 768px) {
-        .main-header { font-size: 1.2rem; }
+        .main-header { font-size: 1.0rem; }
         .sub-header { font-size: 0.8rem; }
     }
     </style>
@@ -97,7 +97,7 @@ st.markdown(f"""
     <div>{logo_html}</div>
     <div>
         <h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1>
-        <p class="sub-header">Consolidated Clinical Laboratories – Meharry Medical College</p>
+        <p class="sub-header">Meharry Medical College Consolidated Clinical Laboratories </p>
     </div>
 </div>
 """, unsafe_allow_html=True)
