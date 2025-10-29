@@ -144,4 +144,132 @@ if last_user["name"]:
 # MAIN UI
 st.markdown("Please review all documents in each tab, mark them as **Reviewed**, and sign when finished. Progress is saved automatically.")
 
-tabs = st.tabs(list
+tabs = st.tabs(list(CATEGORIES.keys()))
+
+for i, (category_name, folder) in enumerate(CATEGORIES.items()):
+    with tabs[i]:
+        st.subheader(category_name)
+
+        subfolders = sorted([p for p in folder.iterdir() if p.is_dir()])
+        if not subfolders:
+            subfolders = [folder]
+
+        # Prefill from session if available
+        default_name = st.session_state.get("user_name", last_user["name"])
+        default_email = st.session_state.get("user_email", last_user["email"])
+        default_role = st.session_state.get("user_role", last_user["role"])
+
+        name = st.text_input(f"Your Name ({category_name})", value=default_name, key=f"name_{i}")
+        email = st.text_input(f"Your Email ({category_name})", value=default_email, key=f"email_{i}")
+        role = st.text_input(f"Your Role ({category_name})", value=default_role, key=f"role_{i}")
+
+        if not name or not email:
+            st.warning("Enter your name and email to track your review progress.")
+            continue
+
+        # Save session and last user
+        st.session_state["user_name"] = name
+        st.session_state["user_email"] = email
+        st.session_state["user_role"] = role
+        save_last_user(name, email, role)
+
+        # Load this user’s progress
+        progress_df = get_progress()
+        user_progress = progress_df[(progress_df["name"] == name) & (progress_df["email"] == email)]
+
+        reviewed = {}
+        total_files = 0
+        reviewed_count = 0
+
+        for sub in subfolders:
+            st.markdown(f"### 📁 {sub.name}")
+            files = list_files(sub)
+            if not files:
+                st.info("No PDF files found in this folder.")
+                continue
+
+            for file_path in files:
+                total_files += 1
+                rel_path = str(file_path.relative_to(ROOT))
+                was_reviewed = (
+                    (user_progress["file"] == rel_path)
+                    & (user_progress["reviewed"] == True)
+                ).any()
+
+                col1, col2, col3 = st.columns([4, 1.5, 1])
+                with col1:
+                    st.write(f"📄 {file_path.name}")
+                with col2:
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            "📥 Download PDF",
+                            data=f.read(),
+                            file_name=file_path.name,
+                            mime="application/pdf",
+                            key=f"dl_{category_name}_{file_path.name}",
+                        )
+                with col3:
+                    chk = st.checkbox(
+                        "Reviewed",
+                        value=was_reviewed,
+                        key=f"chk_{category_name}_{file_path.name}",
+                    )
+
+                reviewed[file_path] = chk
+
+                if chk and not was_reviewed:
+                    save_progress_row(name, email, category_name, file_path)
+                if chk:
+                    reviewed_count += 1
+
+        st.progress(reviewed_count / max(total_files, 1))
+        st.caption(f"{reviewed_count} of {total_files} documents reviewed.")
+
+        st.markdown("---")
+        st.write("When all files are marked **Reviewed**, please sign below.")
+
+        all_reviewed = total_files > 0 and reviewed_count == total_files
+        if not all_reviewed:
+            st.info("You can stop and return later — progress is saved automatically.")
+
+        with st.form(key=f"form_signature_{category_name}"):
+            submit_btn = st.form_submit_button("Sign and Record Acknowledgement")
+            if submit_btn:
+                if not all_reviewed:
+                    st.warning("Please review all files before final signing.")
+                elif not name or not email:
+                    st.error("Please fill in your name and email.")
+                else:
+                    reviewed_files = [p.name for p, val in reviewed.items() if val]
+                    row = record_signature(name, email, role, category_name, reviewed_files)
+                    st.success("Acknowledgement recorded ✅")
+                    st.json(row)
+
+# -------------------------------------------------
+# SIDEBAR ADMIN AREA
+st.sidebar.markdown("---")
+st.sidebar.header("Admin / Logs")
+
+sign_df = pd.read_csv(SIGNATURE_CSV)
+if not sign_df.empty:
+    st.sidebar.download_button(
+        label="📥 Download Signature Log (CSV)",
+        data=sign_df.to_csv(index=False).encode("utf-8"),
+        file_name="review_signatures.csv",
+        mime="text/csv",
+    )
+else:
+    st.sidebar.write("*No signatures yet.*")
+
+progress_df = get_progress()
+if not progress_df.empty:
+    st.sidebar.download_button(
+        label="📥 Download Review Progress Log (CSV)",
+        data=progress_df.to_csv(index=False).encode("utf-8"),
+        file_name="review_progress.csv",
+        mime="text/csv",
+    )
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Developed by Dollada Srisai")
+
