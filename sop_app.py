@@ -35,7 +35,7 @@ if not st.session_state.authenticated:
 # PAGE SETUP
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Elegant Header Layout with Refined Design ---
+# --- Elegant Light-Themed Header Layout ---
 st.markdown("""
     <style>
     .header-container {
@@ -43,41 +43,49 @@ st.markdown("""
         align-items: center;
         gap: 1.2rem;
         padding: 1rem 1.5rem;
-        background: linear-gradient(90deg, #7a1e3a 0%, #a3475b 40%, #f7f5f6 100%);
-        border-radius: 10px;
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
-        margin-bottom: 1.2rem;
+        background: linear-gradient(90deg, #f9f3f4 0%, #f2e5e8 60%, #ffffff 100%);
+        border-radius: 12px;
+        border: 1px solid #e3d8da;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        margin-bottom: 1.5rem;
     }
 
     .logo-left {
-        width: 180px;
+        width: 170px;
         max-height: 80px;
         object-fit: contain;
         background-color: white;
         padding: 0.3rem;
         border-radius: 8px;
+        border: 1px solid #eee;
     }
 
     .main-header {
-        color: #ffffff;
-        font-size: 0.95rem; /* smaller, refined */
-        font-weight: 600;
-        line-height: 1.2;
+        color: #6e1e33;  /* Meharry maroon */
+        font-size: 1.4rem;
+        font-weight: 650;
+        line-height: 1.25;
         margin: 0;
+        letter-spacing: 0.2px;
+    }
+
+    .sub-header {
+        color: #7a4f55;  /* softer complementary tone */
+        font-size: 0.9rem;
+        font-weight: 400;
+        margin-top: 0.25rem;
         letter-spacing: 0.3px;
     }
 
-   
-
     @media (max-width: 768px) {
-        .main-header { font-size: 0.9rem; }
-       
+        .main-header { font-size: 1.2rem; }
+        .sub-header { font-size: 0.8rem; }
     }
     </style>
 """, unsafe_allow_html=True)
 
 # --- Header / Logo ---
-logo_path = "mmcccl_logo.png"  # update with your file
+logo_path = "mmcccl_logo.png"
 logo_html = ""
 if Path(logo_path).exists():
     logo_base64 = base64.b64encode(open(logo_path, "rb").read()).decode()
@@ -89,7 +97,7 @@ st.markdown(f"""
     <div>{logo_html}</div>
     <div>
         <h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1>
-        
+        <p class="sub-header">Consolidated Clinical Laboratories – Meharry Medical College</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
