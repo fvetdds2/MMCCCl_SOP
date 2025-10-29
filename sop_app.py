@@ -136,7 +136,7 @@ last_user = load_last_user()
 
 if st.sidebar.button(f"▶ Continue as {last_user['name']} ({last_user['email']})" if last_user["name"] else "No saved user"):
     st.session_state["restore_user"] = True
-    st.experimental_rerun()
+    st.rerun()
 
 if st.session_state.get("restore_user", False):
     st.session_state["user_name"] = last_user["name"]
