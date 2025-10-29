@@ -4,14 +4,14 @@ import base64
 from pathlib import Path
 from datetime import datetime
 import os
+import mimetypes
 
 # -------------------------------------------------
 # PAGE SETUP
 st.set_page_config(page_title="MMCCCL Onboarding Document Review & Sign", layout="wide")
 
-# --- Custom Header Layout with logo on left and title on right ---
+# --- Custom Header Layout ---
 from base64 import b64encode
-
 st.markdown("""
     <style>
     .header-container {
@@ -30,43 +30,37 @@ st.markdown("""
         margin: 0;
         line-height: 1.2;
         flex: 1;
-        text-align: right; /* title aligns right */
+        text-align: right;
     }
     .logo-left {
-        width: 400px;  /* logo width */
+        width: 400px;
         max-height: 200px;
         object-fit: contain;
     }
     </style>
 """, unsafe_allow_html=True)
 
+# --- Logo ---
 logo_path = "mmcccl_logo.png"
-try:
+if Path(logo_path).exists():
     with open(logo_path, "rb") as f:
         logo_base64 = b64encode(f.read()).decode()
     logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo-left" />'
-except FileNotFoundError:
+else:
     logo_html = ""
 
 st.markdown(
     f"""
     <div class="header-container">
         <div>{logo_html}</div>
-        <div>
-            <h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1>
-        </div>
+        <div><h1 class="main-header">MMCCCL Onboarding Document Review & Sign</h1></div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# Optional: for reading docx content (install python-docx)
-try:
-    import docx
-except Exception:
-    docx = None
-
-# --- CONFIG ---
+# -------------------------------------------------
+# CONFIG
 ROOT = Path("docs")
 CATEGORIES = {
     "Standard SOPs": ROOT / "sop",
@@ -74,10 +68,15 @@ CATEGORIES = {
     "Safety Policies": ROOT / "safety",
 }
 SIGNATURES_DIR = Path("signatures")
-SIGNATURES_DIR.mkdir(exist_ok=True)
+SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
 
-# ensure signature CSV exists
+# Ensure all folders exist
+ROOT.mkdir(parents=True, exist_ok=True)
+for folder in CATEGORIES.values():
+    folder.mkdir(parents=True, exist_ok=True)
+
+# Ensure CSV exists
 if not SIGNATURE_CSV.exists():
     pd.DataFrame(columns=[
         "timestamp_utc", "timestamp_local", "name", "email", "role",
@@ -85,76 +84,108 @@ if not SIGNATURE_CSV.exists():
     ]).to_csv(SIGNATURE_CSV, index=False)
 
 # -------------------------------------------------
-# HELPER FUNCTIONS
+# OPTIONAL DOCX SUPPORT
+try:
+    import docx
+except Exception:
+    docx = None
+
 # -------------------------------------------------
+# HELPERS
 def list_files(folder: Path):
     """List all supported files including subfolders."""
     if not folder.exists():
         return []
     exts = [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".csv", ".xls"]
-    return [p for p in sorted(folder.rglob("*")) if p.suffix.lower() in exts]
+    return [p for p in sorted(folder.rglob("*")) if p.is_file() and p.suffix.lower() in exts]
 
 
 def embed_pdf(file_path: Path, height: int = 800):
-    """Chrome-safe PDF embedding: provides link and inline preview."""
+    """Clean, Chrome-safe PDF display (no broken iframe or file:// link)."""
     try:
-        # Safe open link
-        st.markdown(f"📄 [Open {file_path.name} in new tab](file://{file_path.resolve()})", unsafe_allow_html=True)
-        
-        # Inline preview (may be blocked by Chrome for some PDFs)
+        file_size = file_path.stat().st_size
+        if file_size <= 5 * 1024 * 1024:  # <= 5MB safe to embed
+            with open(file_path, "rb") as f:
+                data = f.read()
+            b64 = base64.b64encode(data).decode()
+            import streamlit.components.v1 as components
+            components.html(
+                f"""
+                <iframe
+                    src="data:application/pdf;base64,{b64}#toolbar=1"
+                    width="100%"
+                    height="{height}px"
+                    style="border:1px solid #ccc;border-radius:8px;"
+                ></iframe>
+                """,
+                height=height + 30,
+            )
+            st.download_button(
+                "📥 Download PDF",
+                data=data,
+                file_name=file_path.name,
+                mime="application/pdf",
+            )
+        else:
+            st.info("This PDF is large and may not preview inline. Please download to view it.")
+            with open(file_path, "rb") as f:
+                st.download_button(
+                    "📥 Download PDF (open after download)",
+                    data=f.read(),
+                    file_name=file_path.name,
+                    mime="application/pdf",
+                )
+    except Exception:
+        st.error(f"Unable to preview {file_path.name}.")
         with open(file_path, "rb") as f:
-            data = f.read()
-        b64 = base64.b64encode(data).decode()
-        pdf_display = f"""
-        <iframe
-            src="data:application/pdf;base64,{b64}#toolbar=1&navpanes=0&scrollbar=1"
-            width="100%"
-            height="{height}px"
-            style="border:1px solid #ddd; border-radius:10px;"
-        ></iframe>
-        """
-        st.markdown(pdf_display, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Could not open {file_path.name}: {e}")
-
-
-def file_download_link(file_path: Path, label: str = None):
-    label = label or file_path.name
-    with open(file_path, "rb") as f:
-        data = f.read()
-    b64 = base64.b64encode(data).decode()
-    return f'<a href="data:application/octet-stream;base64,{b64}" download="{file_path.name}">{label}</a>'
+            st.download_button(
+                "📥 Download PDF",
+                data=f.read(),
+                file_name=file_path.name,
+                mime="application/pdf",
+            )
 
 
 def preview_docx(file_path: Path, max_paragraphs=40):
     if docx is None:
-        st.write("Preview unavailable (python-docx not installed). Use download button.")
+        st.write("Preview unavailable. Please download to view.")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Word File", data=f.read(), file_name=file_path.name)
         return
     try:
         doc = docx.Document(str(file_path))
         text = []
         for i, para in enumerate(doc.paragraphs):
-            text.append(para.text)
+            if para.text.strip():
+                text.append(para.text)
             if i + 1 >= max_paragraphs:
                 break
         st.markdown("\n\n".join(text) if text else "*No preview text available.*")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Word File", data=f.read(), file_name=file_path.name)
     except Exception as e:
         st.error(f"Error reading Word document: {e}")
 
 
 def preview_excel(file_path: Path, nrows=50):
     try:
-        df = pd.read_excel(file_path, engine="openpyxl")
+        df = pd.read_excel(file_path, nrows=nrows)
         st.dataframe(df.head(nrows))
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Excel File", data=f.read(), file_name=file_path.name)
     except Exception as e:
         st.error(f"Couldn't preview Excel file: {e}")
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Excel File", data=f.read(), file_name=file_path.name)
 
 
 def preview_text(file_path: Path, nlines=200):
     try:
         with open(file_path, "r", errors="ignore") as f:
             text = f.read()
-        st.code(text[:20000])  # limit size
+        st.code(text[:20000])
+        with open(file_path, "rb") as f:
+            st.download_button("📥 Download Text File", data=f.read(), file_name=file_path.name)
     except Exception as e:
         st.error(f"Error reading text file: {e}")
 
@@ -178,11 +209,15 @@ def record_signature(name, email, role, category, reviewed_files):
 
 
 def get_signatures_df():
-    return pd.read_csv(SIGNATURE_CSV)
+    try:
+        return pd.read_csv(SIGNATURE_CSV)
+    except Exception:
+        return pd.DataFrame(columns=[
+            "timestamp_utc", "timestamp_local", "name", "email", "role", "category", "reviewed_files"
+        ])
 
 # -------------------------------------------------
 # MAIN UI
-# -------------------------------------------------
 st.markdown("""
 Please review all documents in each tab, mark them as **Reviewed**, and sign when done.
 """)
@@ -202,30 +237,31 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
         reviewed = {}
         for f in files:
             st.subheader(f.name)
-            col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns([3, 1])
             with col1:
-                if f.suffix.lower() == ".pdf":
+                suffix = f.suffix.lower()
+                if suffix == ".pdf":
                     st.write("PDF Preview:")
                     embed_pdf(f, height=600)
-                elif f.suffix.lower() in [".doc", ".docx"]:
+                elif suffix in [".doc", ".docx"]:
                     st.write("Preview (first paragraphs):")
                     preview_docx(f)
-                elif f.suffix.lower() in [".xls", ".xlsx", ".csv"]:
-                    st.write("Preview of the spreadsheet (first rows):")
+                elif suffix in [".xls", ".xlsx", ".csv"]:
+                    st.write("Preview (first rows):")
                     preview_excel(f)
-                elif f.suffix.lower() == ".txt":
+                elif suffix == ".txt":
                     preview_text(f)
                 else:
-                    st.write("No inline preview available.")
-                st.markdown(file_download_link(f, label="📥 Download file"), unsafe_allow_html=True)
+                    st.write("No preview available.")
+                    with open(f, "rb") as fb:
+                        st.download_button("📥 Download File", data=fb.read(), file_name=f.name)
             with col2:
-                checkbox_key = f"reviewed_{category_name}_{f.name}"
-                reviewed[f.name] = st.checkbox("Reviewed", key=checkbox_key)
+                reviewed[f.name] = st.checkbox("Reviewed", key=f"reviewed_{category_name}_{f.name}")
 
         st.markdown("---")
         st.write("When all files above are marked **Reviewed**, please sign below to record your acknowledgement.")
 
-        all_reviewed = all(reviewed.values())
+        all_reviewed = all(reviewed.values()) if reviewed else False
         if not all_reviewed:
             st.warning("You must mark every file above as Reviewed before signing.")
 
@@ -246,17 +282,14 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
                     row = record_signature(name, email, role, category_name, reviewed_files)
                     st.success("Acknowledgement recorded ✅")
                     st.json(row)
-                    st.write("Your acknowledgement has been saved successfully.")
 
 # -------------------------------------------------
 # SIDEBAR ADMIN AREA
-# -------------------------------------------------
 st.sidebar.header("Admin / Personal Log")
-st.sidebar.write("Download the review/signature log or view recent signers.")
-
 sign_df = get_signatures_df()
+
 st.sidebar.download_button(
-    label="📥 Download signature log (CSV)",
+    label="📥 Download Signature Log (CSV)",
     data=sign_df.to_csv(index=False).encode("utf-8"),
     file_name="review_signatures.csv",
     mime="text/csv",
@@ -270,7 +303,7 @@ else:
 
 # --- Admin Upload ---
 st.sidebar.markdown("---")
-st.sidebar.header("Admin: Upload documents")
+st.sidebar.header("Admin: Upload Documents")
 if st.sidebar.checkbox("Show upload form"):
     upload_cat = st.sidebar.selectbox("Category", list(CATEGORIES.keys()))
     uploaded = st.sidebar.file_uploader("Choose file(s) to upload", accept_multiple_files=True)
