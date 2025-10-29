@@ -23,7 +23,7 @@ if not st.session_state.authenticated:
         if pass_input == PASSCODE:
             st.session_state.authenticated = True
             st.success("✅ Access granted. Loading dashboard...")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("❌ Incorrect passcode. Please try again.")
 
