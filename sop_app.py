@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from io import BytesIO
 from pathlib import Path
+import base64 
 
 # -------------------------------------------------
 # SIMPLE LOGIN / PASSCODE PROTECTION
