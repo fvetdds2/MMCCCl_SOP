@@ -15,7 +15,7 @@ if "authenticated" not in st.session_state:
 
 # Login form
 if not st.session_state.authenticated:
-    st.title("🔒 Translational Pathology Dashboard Login")
+    st.title("🔒 MMCCCL Onboarding Documents Login")
 
     pass_input = st.text_input("Enter Passcode:", type="password")
 
