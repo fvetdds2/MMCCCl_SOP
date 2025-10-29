@@ -55,10 +55,8 @@ CATEGORIES = {
     "Technical Documents": ROOT / "technical",
     "Safety Policies": ROOT / "safety",
 }
-
 SIGNATURES_DIR = Path("signatures")
 SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
-
 REVIEW_PROGRESS_CSV = SIGNATURES_DIR / "review_progress.csv"
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
 LAST_USER_CSV = SIGNATURES_DIR / "last_user.csv"
@@ -66,7 +64,8 @@ LAST_USER_CSV = SIGNATURES_DIR / "last_user.csv"
 for folder in CATEGORIES.values():
     folder.mkdir(parents=True, exist_ok=True)
 
-# Init CSVs
+# -------------------------------------------------
+# INIT CSVs
 if not REVIEW_PROGRESS_CSV.exists():
     pd.DataFrame(columns=["name", "email", "category", "file", "reviewed", "timestamp"]).to_csv(REVIEW_PROGRESS_CSV, index=False)
 if not SIGNATURE_CSV.exists():
@@ -125,43 +124,43 @@ def load_last_user():
         pass
     return {"name": "", "email": "", "role": ""}
 
-# -------------------------------------------------
-# SIDEBAR: CONTINUE SESSION
-st.sidebar.header("User Session")
-last_user = load_last_user()
-
 def load_user_progress_to_state(name, email):
-    """Load previously reviewed files into session state"""
     df = get_progress()
     user_files = df[(df["name"] == name) & (df["email"] == email) & (df["reviewed"] == True)]["file"].tolist()
     st.session_state["reviewed_files"] = user_files
 
-if last_user["name"]:
-    if st.sidebar.button(f"▶ Continue as {last_user['name']} ({last_user['email']})"):
-        st.session_state["user_name"] = last_user["name"]
-        st.session_state["user_email"] = last_user["email"]
-        st.session_state["user_role"] = last_user["role"]
-        load_user_progress_to_state(last_user["name"], last_user["email"])
-        st.sidebar.success("Session restored! ✅")
+# -------------------------------------------------
+# SIDEBAR SESSION RESTORE
+st.sidebar.header("User Session")
+last_user = load_last_user()
+
+if st.sidebar.button(f"▶ Continue as {last_user['name']} ({last_user['email']})" if last_user["name"] else "No saved user"):
+    st.session_state["restore_user"] = True
+    st.experimental_rerun()
+
+if st.session_state.get("restore_user", False):
+    st.session_state["user_name"] = last_user["name"]
+    st.session_state["user_email"] = last_user["email"]
+    st.session_state["user_role"] = last_user["role"]
+    load_user_progress_to_state(last_user["name"], last_user["email"])
+    st.session_state["restore_user"] = False
+    st.sidebar.success("Session restored! ✅")
 
 # -------------------------------------------------
 # MAIN UI
 st.markdown("Please review all documents in each tab, mark them as **Reviewed**, and sign when finished. Progress is saved automatically.")
-
 tabs = st.tabs(list(CATEGORIES.keys()))
 
 for i, (category_name, folder) in enumerate(CATEGORIES.items()):
     with tabs[i]:
         st.subheader(category_name)
-
         subfolders = sorted([p for p in folder.iterdir() if p.is_dir()])
         if not subfolders:
             subfolders = [folder]
 
-        # Prefill from session
-        default_name = st.session_state.get("user_name", last_user["name"])
-        default_email = st.session_state.get("user_email", last_user["email"])
-        default_role = st.session_state.get("user_role", last_user["role"])
+        default_name = st.session_state.get("user_name", "")
+        default_email = st.session_state.get("user_email", "")
+        default_role = st.session_state.get("user_role", "")
 
         name = st.text_input(f"Your Name ({category_name})", value=default_name, key=f"name_{i}")
         email = st.text_input(f"Your Email ({category_name})", value=default_email, key=f"email_{i}")
@@ -176,7 +175,6 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
         st.session_state["user_role"] = role
         save_last_user(name, email, role)
 
-        # Load progress (from CSV or session)
         if "reviewed_files" not in st.session_state:
             load_user_progress_to_state(name, email)
         reviewed_files = set(st.session_state.get("reviewed_files", []))
