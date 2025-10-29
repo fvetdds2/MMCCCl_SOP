@@ -63,17 +63,14 @@ REVIEW_PROGRESS_CSV = SIGNATURES_DIR / "review_progress.csv"
 SIGNATURE_CSV = SIGNATURES_DIR / "review_signatures.csv"
 LAST_USER_CSV = SIGNATURES_DIR / "last_user.csv"
 
-# Ensure folders exist
 for folder in CATEGORIES.values():
     folder.mkdir(parents=True, exist_ok=True)
 
-# Initialize files
+# Init CSVs
 if not REVIEW_PROGRESS_CSV.exists():
     pd.DataFrame(columns=["name", "email", "category", "file", "reviewed", "timestamp"]).to_csv(REVIEW_PROGRESS_CSV, index=False)
-
 if not SIGNATURE_CSV.exists():
     pd.DataFrame(columns=["timestamp_utc", "timestamp_local", "name", "email", "role", "category", "reviewed_files"]).to_csv(SIGNATURE_CSV, index=False)
-
 if not LAST_USER_CSV.exists():
     pd.DataFrame(columns=["name", "email", "role"]).to_csv(LAST_USER_CSV, index=False)
 
@@ -133,12 +130,19 @@ def load_last_user():
 st.sidebar.header("User Session")
 last_user = load_last_user()
 
+def load_user_progress_to_state(name, email):
+    """Load previously reviewed files into session state"""
+    df = get_progress()
+    user_files = df[(df["name"] == name) & (df["email"] == email) & (df["reviewed"] == True)]["file"].tolist()
+    st.session_state["reviewed_files"] = user_files
+
 if last_user["name"]:
     if st.sidebar.button(f"▶ Continue as {last_user['name']} ({last_user['email']})"):
         st.session_state["user_name"] = last_user["name"]
         st.session_state["user_email"] = last_user["email"]
         st.session_state["user_role"] = last_user["role"]
-        st.sidebar.success("Session restored!")
+        load_user_progress_to_state(last_user["name"], last_user["email"])
+        st.sidebar.success("Session restored! ✅")
 
 # -------------------------------------------------
 # MAIN UI
@@ -154,7 +158,7 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
         if not subfolders:
             subfolders = [folder]
 
-        # Prefill from session if available
+        # Prefill from session
         default_name = st.session_state.get("user_name", last_user["name"])
         default_email = st.session_state.get("user_email", last_user["email"])
         default_role = st.session_state.get("user_role", last_user["role"])
@@ -167,15 +171,15 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
             st.warning("Enter your name and email to track your review progress.")
             continue
 
-        # Save session and last user
         st.session_state["user_name"] = name
         st.session_state["user_email"] = email
         st.session_state["user_role"] = role
         save_last_user(name, email, role)
 
-        # Load this user’s progress
-        progress_df = get_progress()
-        user_progress = progress_df[(progress_df["name"] == name) & (progress_df["email"] == email)]
+        # Load progress (from CSV or session)
+        if "reviewed_files" not in st.session_state:
+            load_user_progress_to_state(name, email)
+        reviewed_files = set(st.session_state.get("reviewed_files", []))
 
         reviewed = {}
         total_files = 0
@@ -191,10 +195,7 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
             for file_path in files:
                 total_files += 1
                 rel_path = str(file_path.relative_to(ROOT))
-                was_reviewed = (
-                    (user_progress["file"] == rel_path)
-                    & (user_progress["reviewed"] == True)
-                ).any()
+                was_reviewed = rel_path in reviewed_files
 
                 col1, col2, col3 = st.columns([4, 1.5, 1])
                 with col1:
@@ -209,16 +210,12 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
                             key=f"dl_{category_name}_{file_path.name}",
                         )
                 with col3:
-                    chk = st.checkbox(
-                        "Reviewed",
-                        value=was_reviewed,
-                        key=f"chk_{category_name}_{file_path.name}",
-                    )
+                    chk = st.checkbox("Reviewed", value=was_reviewed, key=f"chk_{category_name}_{file_path.name}")
 
                 reviewed[file_path] = chk
-
                 if chk and not was_reviewed:
                     save_progress_row(name, email, category_name, file_path)
+                    st.session_state["reviewed_files"].append(rel_path)
                 if chk:
                     reviewed_count += 1
 
@@ -237,16 +234,14 @@ for i, (category_name, folder) in enumerate(CATEGORIES.items()):
             if submit_btn:
                 if not all_reviewed:
                     st.warning("Please review all files before final signing.")
-                elif not name or not email:
-                    st.error("Please fill in your name and email.")
                 else:
-                    reviewed_files = [p.name for p, val in reviewed.items() if val]
-                    row = record_signature(name, email, role, category_name, reviewed_files)
+                    reviewed_list = [p.name for p, val in reviewed.items() if val]
+                    row = record_signature(name, email, role, category_name, reviewed_list)
                     st.success("Acknowledgement recorded ✅")
                     st.json(row)
 
 # -------------------------------------------------
-# SIDEBAR ADMIN AREA
+# SIDEBAR ADMIN
 st.sidebar.markdown("---")
 st.sidebar.header("Admin / Logs")
 
@@ -258,8 +253,6 @@ if not sign_df.empty:
         file_name="review_signatures.csv",
         mime="text/csv",
     )
-else:
-    st.sidebar.write("*No signatures yet.*")
 
 progress_df = get_progress()
 if not progress_df.empty:
@@ -270,6 +263,4 @@ if not progress_df.empty:
         mime="text/csv",
     )
 
-st.sidebar.markdown("---")
 st.sidebar.caption("Developed by Dollada Srisai")
-
